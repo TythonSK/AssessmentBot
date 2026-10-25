@@ -89,8 +89,14 @@ created by `averagingAnalyser.accumulatorRegistry.ts`) retains two accumulators:
 resolves each live partial through `resolveAssignmentDefinitionData`, builds its
 `TaskWeightingIndex` once per definition, calls the shared
 `computeEffectiveWeight` helper, and records the definition-scoped
-`averageContribution` metadata via `ensureAverageContribution`. Unknown
-submission task IDs are warned and dropped before contribution processing.
+`averageContribution` metadata via `ensureAverageContribution`.
+
+Within each `processAssignment` call, a lazy local cache resolves the effective
+weight, task key and task accumulator once per encountered known task, then
+reuses them across student submissions. The cache is recreated for each call,
+so it does not retain weighting data between assignments or analysis runs.
+Unknown submission task IDs are not cached; each occurrence is still warned
+and dropped before contribution processing.
 
 Raw `N` remains a property of the source assessment. It retains its existing
 positive-weight aggregation semantics and is never manufactured because a

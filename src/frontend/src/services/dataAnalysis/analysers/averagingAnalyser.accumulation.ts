@@ -49,30 +49,44 @@ export function processAssignment(
   perStudentTaskAccums: Map<string, Map<string, DataPointAccumulator>>,
   averageContributionByTaskKey: Map<string, AverageContribution>
 ): void {
+  const resolvedTasks = new Map<
+    string,
+    { effectiveWeight: number; taskKey: string; taskAccum: DataPointAccumulator }
+  >();
+
   for (const submission of assignment.submissions) {
     const { studentId, studentName, items } = submission;
     const studentAccum = getOrCreateStudentAccum(studentAccums, studentId, studentName);
 
     for (const [taskId, item] of Object.entries(items)) {
-      const effectiveWeight = computeEffectiveWeight(weightingIndex, taskId);
-      if (effectiveWeight === undefined) {
-        logFrontendEvent('warn', {
-          context: 'processAssignment',
-          errorMessage: `Submission task '${taskId}' is absent from the live assignment definition; dropping the item`,
-          metadata: { definitionKey, taskId },
-        });
-        continue;
+      let resolvedTask = resolvedTasks.get(taskId);
+      if (!resolvedTask) {
+        const effectiveWeight = computeEffectiveWeight(weightingIndex, taskId);
+        if (effectiveWeight === undefined) {
+          logFrontendEvent('warn', {
+            context: 'processAssignment',
+            errorMessage: `Submission task '${taskId}' is absent from the live assignment definition; dropping the item`,
+            metadata: { definitionKey, taskId },
+          });
+          continue;
+        }
+
+        ensureAverageContribution(
+          averageContributionByTaskKey,
+          definitionKey,
+          taskId,
+          effectiveWeight
+        );
+
+        resolvedTask = {
+          effectiveWeight,
+          taskKey: buildTaskKey(definitionKey, taskId),
+          taskAccum: getOrCreateTaskAccum(taskAccums, definitionKey, taskId),
+        };
+        resolvedTasks.set(taskId, resolvedTask);
       }
 
-      ensureAverageContribution(
-        averageContributionByTaskKey,
-        definitionKey,
-        taskId,
-        effectiveWeight
-      );
-
-      const taskKey = buildTaskKey(definitionKey, taskId);
-      const taskAccum = getOrCreateTaskAccum(taskAccums, definitionKey, taskId);
+      const { effectiveWeight, taskKey, taskAccum } = resolvedTask;
       const perStudentTaskAccum = getOrCreatePerStudentTaskAccum(
         perStudentTaskAccums,
         studentId,

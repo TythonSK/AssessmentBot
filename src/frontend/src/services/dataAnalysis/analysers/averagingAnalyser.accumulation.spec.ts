@@ -420,3 +420,112 @@ describe('unknown submission task IDs', () => {
     );
   });
 });
+
+describe('repeated submission task accumulation', () => {
+  it('retains every student observation and re-resolves live weights on the next analysis', () => {
+    const definition = createDefinitionPartial({
+      definitionKey: 'dk_repeated_task',
+      tasks: [createTaskPartial('t_001')],
+    });
+    // A focused weight-change boundary with the same task repeated across students.
+    const input = buildInput(
+      [
+        {
+          classId: 'c_001',
+          studentIds: ['s_001', 's_002'],
+          assignments: [
+            createAssignmentPartial({
+              assignmentId: 'a_001',
+              definitionKey: definition.definitionKey,
+              submissions: [2, 8].map((score, index) => {
+                return createSubmission(`s_00${index + 1}`, `Student ${index}`, 'a_001', {
+                  t_001: createSubmissionItem('t_001', { completeness: { score } }),
+                });
+              }
+              ),
+            }),
+          ],
+        },
+      ],
+      { assignmentDefinitionPartials: [definition] }
+    );
+    const analyser = new AveragingAnalyser();
+    const positive = analyser.analyse(input)[0];
+
+    expect(positive.perClass.completeness).toMatchObject({
+      state: 'computed',
+      value: 5,
+      totalWeight: 2,
+      totalDataPoints: 2,
+    });
+    expect(positive.perStudentTaskMetrics).toHaveLength(2);
+    for (const metric of positive.perStudentTaskMetrics!) {
+      expect(metric.averageContribution).toEqual({
+        effectiveWeight: 1,
+        includedInAverage: true,
+      });
+    }
+
+    input.assignmentDefinitionPartials[0].tasks[0].taskWeighting = 0;
+    const zero = analyser.analyse(input)[0];
+
+    expect(zero.perClass.completeness).toMatchObject({
+      state: 'excluded',
+      totalWeight: 0,
+      totalDataPoints: 2,
+    });
+    expect(zero.perTask[0].completeness).toMatchObject({ state: 'computed', value: 5 });
+    expect(zero.perStudentTaskMetrics).toHaveLength(2);
+    for (const metric of zero.perStudentTaskMetrics!) {
+      expect(metric.averageContribution).toEqual({
+        effectiveWeight: 0,
+        includedInAverage: false,
+      });
+    }
+  });
+
+  it('warns for every unknown task item even when students repeat the same task ID', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const input = buildInput(
+      [
+        {
+          classId: 'c_001',
+          studentIds: ['s_001', 's_002'],
+          assignments: [
+            createAssignmentPartial({
+              assignmentId: 'a_001',
+              definitionKey: 'dk_unknown_task',
+              submissions: ['s_001', 's_002'].map((studentId) => {
+                return createSubmission(studentId, studentId, 'a_001', {
+                  t_unknown: createSubmissionItem('t_unknown', { completeness: { score: 10 } }),
+                });
+              }
+              ),
+            }),
+          ],
+        },
+      ],
+      {
+        assignmentDefinitionPartials: [
+          createDefinitionPartial({
+            definitionKey: 'dk_unknown_task',
+            tasks: [createTaskPartial('t_known')],
+          }),
+        ],
+      }
+    );
+
+    const result = new AveragingAnalyser().analyse(input)[0];
+
+    expect(warnSpy).toHaveBeenCalledTimes(2);
+    expect(warnSpy).toHaveBeenNthCalledWith(
+      2,
+      'processAssignment',
+      expect.objectContaining({
+        metadata: { definitionKey: 'dk_unknown_task', taskId: 't_unknown' },
+      })
+    );
+    expect(result.perStudentTaskMetrics).toEqual([]);
+    expect(result.perTask.map((task) => task.taskId)).toEqual(['t_known']);
+  });
+});
