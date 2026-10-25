@@ -40,6 +40,7 @@ function isExcludedPath(relativeFilePath, excludedPathSegments) {
 function discoverBackendSourceFilePaths() {
   return fs
     .globSync('**/*.js', { cwd: BACKEND_SOURCE_ROOT })
+    .map((relativePath) => relativePath.split(path.sep).join('/'))
     .filter((relativePath) => !isExcludedPath(relativePath, DEFAULT_EXCLUDED_PATH_SEGMENTS));
 }
 
